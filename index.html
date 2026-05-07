@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小说 AI 工作流 | 沉浸式创作</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="nav-left">
+        <span class="logo">WF</span>
+        <div class="nav-title">
+          <h1>AI Novel Pipeline</h1>
+          <span id="statusPill" class="pill">就绪</span>
+        </div>
+      </div>
+      <div class="nav-right">
+        <label class="toggle-sm">
+          <input id="mockMode" type="checkbox" />
+          <span>模拟模式</span>
+        </label>
+        <label class="workflow-mode-control">
+          <span>模式</span>
+          <select id="workflowRunMode" aria-label="工作流运行模式">
+            <option value="fast">快速</option>
+            <option value="standard" selected>标准</option>
+            <option value="strict">严格</option>
+          </select>
+        </label>
+        <button id="toggleSettings" class="nav-btn" title="设置 API">⚙️</button>
+        <div class="v-sep"></div>
+        <button id="stopWorkflow" class="nav-btn stop" disabled>停止</button>
+        <button id="resumeWorkflow" class="nav-btn resume" disabled>续跑</button>
+        <button id="runWorkflow" class="primary-btn">运行工作流</button>
+      </div>
+    </nav>
+
+    <div id="settingsDrawer" class="drawer">
+      <div class="drawer-content">
+        <div class="drawer-header">
+          <h2>API 配置</h2>
+          <button id="closeSettings" class="close-btn">&times;</button>
+        </div>
+        
+        <div class="config-grid">
+          <section class="config-section">
+            <h3>核心 (OpenAI)</h3>
+            <input id="openaiBaseUrl" placeholder="Base URL" />
+            <div class="input-group">
+              <input id="openaiApiKey" type="password" placeholder="API Key" />
+              <button class="toggle-password" data-target="openaiApiKey">👁️</button>
+            </div>
+            <input id="controllerModel" placeholder="主控模型" />
+            <input id="writerModel" placeholder="写作模型" />
+            <button id="testOpenAI" class="test-btn">测试 OpenAI</button>
+          </section>
+
+          <section class="config-section">
+            <h3>辅助 (Gemini)</h3>
+            <input id="geminiBaseUrl" placeholder="Base URL (可选)" />
+            <div class="input-group">
+              <input id="geminiApiKey" type="password" placeholder="Gemini Key" />
+              <button class="toggle-password" data-target="geminiApiKey">👁️</button>
+            </div>
+            <input id="geminiModel" placeholder="Gemini 模型" />
+            <button id="testGemini" class="test-btn">测试 Gemini</button>
+          </section>
+
+          <section class="config-section">
+            <h3>辅助 (DeepSeek)</h3>
+            <input id="deepseekBaseUrl" placeholder="Base URL (可选)" />
+            <div class="input-group">
+              <input id="deepseekApiKey" type="password" placeholder="DeepSeek Key" />
+              <button class="toggle-password" data-target="deepseekApiKey">👁️</button>
+            </div>
+            <input id="deepseekModel" placeholder="抽取模型" />
+            <button id="testDeepSeek" class="test-btn">测试 DeepSeek</button>
+          </section>
+        </div>
+        
+        <div class="drawer-footer">
+          <button id="resetConfig" class="text-btn">重置默认</button>
+          <button id="saveConfig" class="action-btn">保存并关闭</button>
+        </div>
+      </div>
+    </div>
+    <div class="drawer-overlay"></div>
+
+    <aside class="workflow-rail" aria-label="可视化工作流">
+      <div class="workflow-rail-title">
+        <span>Workflow</span>
+        <strong>创作闭环</strong>
+      </div>
+      <div class="workflow-track">
+        <div class="workflow-node" data-flow="controller">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>主控对话</strong>
+            <small>输入需求</small>
+          </div>
+        </div>
+        <div class="workflow-node" data-flow="analysis">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>沉淀输入</strong>
+            <small>圣经 / 档案 / 大纲</small>
+          </div>
+        </div>
+        <div class="workflow-node" data-flow="brief">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>主控 Brief</strong>
+            <small>章节约束</small>
+          </div>
+        </div>
+        <div class="workflow-node" data-flow="draft">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>正文草稿</strong>
+            <small>生成章节</small>
+          </div>
+        </div>
+        <div class="workflow-node" data-flow="audit">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>审稿检查</strong>
+            <small>逻辑与连续性</small>
+          </div>
+        </div>
+        <div class="workflow-node" data-flow="extract">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>状态抽取</strong>
+            <small>更新记忆</small>
+          </div>
+        </div>
+        <div class="workflow-node" data-flow="next">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>下一章</strong>
+            <small>推进目标</small>
+          </div>
+        </div>
+        <div class="workflow-node" data-flow="export">
+          <span class="workflow-dot"></span>
+          <div>
+            <strong>导出</strong>
+            <small>保存草稿</small>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="app-shell">
+      <aside class="project-sidebar">
+        <div class="project-sidebar-header">
+          <div>
+            <h2>书库</h2>
+            <span id="projectCount">0 本书</span>
+          </div>
+          <button id="newProject" class="icon-btn" title="新开一本书">+</button>
+        </div>
+        <div id="projectList" class="project-list"></div>
+        <section class="sidebar-utility">
+          <div class="sidebar-utility-copy">
+            <h3>卷纲页</h3>
+            <span>单独管理全书大纲和每一卷的内容沉淀。</span>
+          </div>
+          <a id="openVolumeStudio" class="copy-btn sidebar-link-btn" href="./volumes.html" target="_blank" rel="noopener">打开</a>
+        </section>
+        <section class="skill-panel skill-panel-compact">
+          <div class="skill-panel-compact-copy">
+            <h3>Skill 开关</h3>
+            <span id="skillToggleSummary">按角色控制本项目的辅助技能</span>
+          </div>
+          <button id="openSkillPanel" class="copy-btn" type="button">管理</button>
+        </section>
+      </aside>
+
+      <main class="canvas">
+        <header class="canvas-header">
+          <div class="current-project">
+            <input id="projectTitle" aria-label="当前书名" />
+            <button id="deleteProject" class="text-btn">删除本书</button>
+          </div>
+          <div class="steps-minimal">
+            <div class="step-dot" data-step="brief" title="生成 Brief"></div>
+            <div class="step-dot" data-step="draft" title="起草正文"></div>
+            <div class="step-dot" data-step="audit" title="审稿检查"></div>
+            <div class="step-dot" data-step="extract" title="抽取状态"></div>
+          </div>
+        </header>
+
+        <section class="controller-panel">
+          <div class="controller-header">
+            <div>
+              <h2>主控对话</h2>
+              <p>和主控讨论题材、人物、结构、章节推进；确认后沉淀到下方创作输入和工程记忆。</p>
+            </div>
+            <div class="controller-actions">
+              <button id="archiveController" class="text-btn">归档旧对话</button>
+              <button id="clearControllerMemory" class="text-btn">清空长期记忆</button>
+              <button id="clearController" class="text-btn">清空对话</button>
+              <button id="analyzeController" class="action-btn">沉淀到下方</button>
+            </div>
+          </div>
+          <div class="controller-memory">
+            <div class="controller-memory-header">
+              <strong>主控长期记忆</strong>
+              <span id="controllerMemoryMeta">暂无归档</span>
+            </div>
+            <div id="controllerMemoryBody" class="controller-memory-body empty">旧对话一长会自动归档到这里。主控继续能读到，但不会再把全部历史对话硬塞进上下文。</div>
+          </div>
+          <div id="controllerMessages" class="controller-messages"></div>
+          <div class="controller-compose">
+            <textarea id="controllerInput" placeholder="把这本书的需求告诉主控..."></textarea>
+            <button id="sendController" class="primary-btn">发送给主控</button>
+          </div>
+        </section>
+
+        <section class="project-dashboard" aria-label="全书仪表盘">
+          <div class="project-dashboard-header">
+            <div>
+              <h3>长篇运营视图</h3>
+              <span id="dashboardHint">当前书的章节、字数、卷进度、钩子和质量状态。</span>
+            </div>
+            <span id="dashboardUpdatedAt" class="dashboard-updated">未运行</span>
+          </div>
+          <div id="projectDashboardGrid" class="project-dashboard-grid">
+            <article class="dashboard-metric">
+              <span>总字数</span>
+              <strong id="dashTotalChars">0</strong>
+              <small id="dashTotalCharsMeta">正文库</small>
+            </article>
+            <article class="dashboard-metric">
+              <span>章节</span>
+              <strong id="dashChapterCount">0</strong>
+              <small id="dashChapterMeta">暂无章节</small>
+            </article>
+            <article class="dashboard-metric">
+              <span>当前卷</span>
+              <strong id="dashVolumeProgress">0章</strong>
+              <small id="dashVolumeMeta">未设置卷范围</small>
+            </article>
+            <article class="dashboard-metric">
+              <span>未回收钩子</span>
+              <strong id="dashOpenHooks">0</strong>
+              <small id="dashHookMeta">结构化钩子</small>
+            </article>
+            <article class="dashboard-metric">
+              <span>角色档案</span>
+              <strong id="dashCharacterCount">0</strong>
+              <small id="dashCharacterMeta">结构化角色</small>
+            </article>
+            <article class="dashboard-metric">
+              <span>正文质量</span>
+              <strong id="dashQualityScore">--</strong>
+              <small id="dashQualityMeta">尚未评分</small>
+            </article>
+            <article class="dashboard-metric">
+              <span>运行状态</span>
+              <strong id="dashRunState">未运行</strong>
+              <small id="dashRunMeta">标准模式</small>
+            </article>
+            <article class="dashboard-metric">
+              <span>风险提示</span>
+              <strong id="dashRiskCount">0</strong>
+              <small id="dashRiskMeta">本章记忆包</small>
+            </article>
+          </div>
+        </section>
+
+        <section class="editor-area">
+          <section class="input-cluster">
+            <div class="cluster-header">
+              <div>
+                <h3>创作输入</h3>
+                <span>主控沉淀出的长期设定、主线和当前推进约束。</span>
+              </div>
+            </div>
+            <div class="cluster-grid">
+              <div class="input-card compact">
+                <label>小说圣经 <span>主控沉淀</span></label>
+                <textarea id="bible" placeholder="世界观、角色设定、创作禁忌..."></textarea>
+              </div>
+              <div class="input-card compact">
+                <label>设定档案 <span>人物 / 势力 / 地点</span></label>
+                <textarea id="codex" placeholder="角色姓名、别名、身份、阵营、关系、地点归属、法宝术语、禁止写错的固定事实..."></textarea>
+              </div>
+              <div class="input-card compact">
+                <label>全书大纲 <span>主线记忆</span></label>
+                <textarea id="outline" placeholder="全书主线、分卷结构、关键转折、秘密揭示节奏、结局方向..."></textarea>
+              </div>
+              <div class="input-card compact">
+                <label>当前写作卷 <span>来自卷纲页</span></label>
+                <textarea id="volumeOutline" class="readonly-field" readonly placeholder="在左侧打开卷纲页，新增或选择当前写作卷后，这里会显示卷级预览。"></textarea>
+              </div>
+              <div class="input-card compact">
+                <label>当前钩子 <span>主控沉淀</span></label>
+                <textarea id="hooks" placeholder="正在推进的伏笔或未解之谜..."></textarea>
+              </div>
+              <div class="input-card compact">
+                <label>伏笔账本 <span>未触发 / 已触发 / 已回收</span></label>
+                <textarea id="foreshadowLedger" placeholder="F-001：伏笔内容｜状态：未触发/已触发/延后/已回收/废弃｜首次出现｜计划回收..."></textarea>
+              </div>
+            </div>
+          </section>
+
+          <section class="input-cluster">
+            <div class="cluster-header cluster-header-split">
+              <div>
+                <h3>写作控制</h3>
+                <span>这一轮真正会影响正文节奏、文风和承接方向的输入。</span>
+              </div>
+              <button id="advanceChapter" class="action-btn">读取上一章并生成下一章目标</button>
+            </div>
+            <div class="cluster-grid single-column">
+              <div class="input-card full compact">
+                <label>文风锚点 <span>贴样本，不是写要求</span></label>
+                <textarea id="styleGuide" placeholder="粘贴 3-8 段你喜欢的正文样本，最好覆盖日常、冲突、抒情或战斗场景。模型会学习句长、节奏、叙述距离、对白密度和画面感，但不会照抄情节。"></textarea>
+                <div class="style-guide-tools">
+                  <span id="styleGuideMeta" class="field-meta">文风锚点 0 字</span>
+                  <button id="openStyleDistill" class="copy-btn" type="button">文风蒸馏</button>
+                </div>
+              </div>
+              <div class="input-card full compact">
+                <label>章节摘要库 <span>自动维护</span></label>
+                <textarea id="chapterSummaries" placeholder="每章写完后自动生成摘要，用于后续长篇记忆。建议每章 300-500 字..."></textarea>
+              </div>
+              <div class="input-card full compact focus-card">
+                <label>本章目标 <span>主控沉淀</span></label>
+                <textarea id="chapterGoal" placeholder="描述本章需要达成的核心情节或情绪转折..."></textarea>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="engineering-panel">
+          <div class="engineering-panel-header">
+            <div>
+              <h3>长篇工程记忆</h3>
+              <span>卷摘要、阶段摘要、人物状态和伏笔生命周期会参与后续章节生成与校验。</span>
+            </div>
+            <div class="engineering-panel-actions">
+              <button id="refreshEngineeringMemory" class="copy-btn" type="button">刷新工程记忆</button>
+              <button id="batchValidateProject" class="action-btn" type="button">批量校名 / 校设定</button>
+            </div>
+          </div>
+          <div class="knowledge-strip">
+            <article class="knowledge-panel">
+              <div class="knowledge-panel-header">
+                <div>
+                  <h4>结构化角色档案</h4>
+                  <span id="characterCardCount">0 条</span>
+                </div>
+                <div class="knowledge-panel-actions">
+                  <button id="addCharacterCard" class="copy-btn" type="button">新增</button>
+                  <button id="copyCharacterCards" class="copy-btn" type="button">复制</button>
+                </div>
+              </div>
+              <div id="characterCardList" class="knowledge-list">
+                <div class="empty-state small">
+                  <p>暂无角色档案</p>
+                  <span>主控沉淀、章节回写后，这里会自动列出人物、归属和状态。</span>
+                </div>
+              </div>
+            </article>
+            <article class="knowledge-panel">
+              <div class="knowledge-panel-header">
+                <div>
+                  <h4>结构化钩子账本</h4>
+                  <span id="hookItemCount">0 条</span>
+                </div>
+                <div class="knowledge-panel-actions">
+                  <button id="addHookItem" class="copy-btn" type="button">新增</button>
+                  <button id="copyHookItems" class="copy-btn" type="button">复制</button>
+                </div>
+              </div>
+              <div id="hookItemList" class="knowledge-list">
+                <div class="empty-state small">
+                  <p>暂无钩子账本</p>
+                  <span>主控沉淀、工程记忆刷新、章节完成后，这里会自动列出钩子和回收状态。</span>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div class="engineering-grid">
+            <div class="input-card">
+              <label>卷摘要 <span>当前卷主线压缩</span></label>
+              <textarea id="volumeSummary" placeholder="当前卷已经发生了什么、核心矛盾推进到哪一步、卷内角色位置如何变化..."></textarea>
+            </div>
+            <div class="input-card">
+              <label>阶段摘要 <span>当前阶段局势</span></label>
+              <textarea id="phaseSummary" placeholder="比卷更短的阶段性状态，例如一场大战前后、一个秘境阶段、一次宗门试炼阶段..."></textarea>
+            </div>
+            <div class="input-card full">
+              <label>人物状态表 <span>长篇防错</span></label>
+              <textarea id="characterStateTable" placeholder="人物｜身份/阵营｜当前位置｜当前状态｜关系变化｜禁止写错..."></textarea>
+            </div>
+            <div class="input-card full">
+              <label>伏笔生命周期 <span>首次出现 / 最近推进 / 预计回收</span></label>
+              <textarea id="foreshadowTimeline" placeholder="F-001｜伏笔内容｜状态｜首次出现｜最近推进｜预计回收｜关联人物/势力..."></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="output-area">
+          <div class="output-header">
+            <h3>生成画布</h3>
+            <div class="output-actions">
+              <button id="collapseOutput" class="copy-btn">收起全部</button>
+              <button id="jumpOutputTop" class="copy-btn">顶部</button>
+              <button id="jumpOutputBottom" class="copy-btn">底部</button>
+              <button id="exportDraft" class="copy-btn">导出草稿</button>
+              <button id="copyOutput" class="copy-btn">复制全文</button>
+            </div>
+          </div>
+          <div id="workflowOutput" class="markdown-body">
+            <div class="empty-state">
+              <p>等待指令中</p>
+              <span>默认使用真实 API。需要离线演示时，可在右上角开启模拟模式。</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="chapter-library">
+          <div class="chapter-library-header">
+            <div>
+              <h3>正文章节</h3>
+              <span id="chapterCount">0 章</span>
+            </div>
+            <button id="copyChapter" class="copy-btn" disabled>复制本章</button>
+          </div>
+          <div class="chapter-library-body">
+            <div id="chapterList" class="chapter-list"></div>
+            <article id="chapterReader" class="chapter-reader">
+              <div class="empty-state small">
+                <p>暂无正文章节</p>
+                <span>运行工作流后，正文草稿会自动保存到这里。</span>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="skillModal" class="skill-modal" aria-hidden="true">
+      <div class="skill-modal-backdrop" data-skill-close="true"></div>
+      <section class="skill-modal-card" role="dialog" aria-modal="true" aria-labelledby="skillModalTitle">
+        <div class="skill-modal-header">
+          <div>
+            <h2 id="skillModalTitle">Skill 开关</h2>
+            <span>按角色控制当前项目真正参与提示词的辅助技能</span>
+          </div>
+          <div class="skill-modal-actions">
+            <button id="resetSkillToggles" class="text-btn" type="button">恢复默认</button>
+            <button id="closeSkillPanel" class="close-btn" type="button" aria-label="关闭 Skill 开关">&times;</button>
+          </div>
+        </div>
+        <div class="skill-modal-layout">
+          <div id="skillRoleList" class="skill-role-list"></div>
+          <aside class="skill-detail-panel">
+            <div class="skill-detail-header">
+              <div>
+                <h3 id="skillDetailTitle">查看 Skill</h3>
+                <span id="skillDetailMeta">点击左侧 skill 查看它的完整功能说明。</span>
+              </div>
+            </div>
+            <div id="skillDetailBody" class="skill-detail-body markdown-body"></div>
+          </aside>
+        </div>
+      </section>
+    </div>
+
+    <div id="styleDistillModal" class="style-distill-modal" aria-hidden="true">
+      <div class="style-distill-backdrop" data-style-close="true"></div>
+      <section class="style-distill-card" role="dialog" aria-modal="true" aria-labelledby="styleDistillTitle">
+        <div class="style-distill-header">
+          <div>
+            <h2 id="styleDistillTitle">文风蒸馏</h2>
+            <span>导入 txt 或粘贴正文，先抽样，再提炼成可长期复用的文风锚点。原文不会写入项目。</span>
+          </div>
+          <div class="style-distill-header-actions">
+            <button id="clearStyleSource" class="text-btn" type="button">清空来源</button>
+            <button id="closeStyleDistill" class="close-btn" type="button" aria-label="关闭文风蒸馏">&times;</button>
+          </div>
+        </div>
+        <div class="style-distill-layout">
+          <section class="style-distill-source">
+            <div class="style-distill-toolbar">
+              <input id="styleReferenceTitle" type="text" placeholder="参考书名（可选）" />
+              <label class="upload-btn" for="styleSourceFile">
+                导入 TXT
+                <input id="styleSourceFile" type="file" accept=".txt,.md,.text" />
+              </label>
+            </div>
+            <div id="styleSourceStatus" class="style-source-status">未加载文本，支持 UTF-8 / GB18030 常见 txt。原文只用于本次蒸馏，不会保存到项目。</div>
+            <textarea id="styleSourceText" class="style-source-text" placeholder="可以直接粘贴你想蒸馏的样文。如果已经导入整本 txt，这里也可以再补给几段你特别认可的片段。"></textarea>
+            <textarea id="styleDistillFocus" class="style-focus-text" placeholder="可选：告诉模型你最想保留什么，比如“冷感叙述、短对白、战斗压迫感、抒情克制”。"></textarea>
+          </section>
+          <aside class="style-distill-result">
+            <div class="style-distill-result-header">
+              <div>
+                <h3>蒸馏结果</h3>
+                <span>右侧保留最近一次文风蒸馏报告，并回写到上方文风锚点。</span>
+              </div>
+              <div class="style-distill-result-actions">
+                <button id="distillStyleReplace" class="action-btn" type="button">蒸馏并覆盖</button>
+                <button id="distillStyleAppend" class="copy-btn" type="button">蒸馏后追加</button>
+              </div>
+            </div>
+            <div id="styleDistillPreview" class="style-distill-preview markdown-body">
+              <div class="empty-state small">
+                <p>暂无蒸馏结果</p>
+                <span>导入参考文本后，右侧会保留最近一次文风蒸馏报告。</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

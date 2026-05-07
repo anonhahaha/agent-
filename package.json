@@ -1,0 +1,13 @@
+{
+  "name": "ai-novel-pipeline",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.7.2",
+    "mysql2": "^3.22.3"
+  }
+}

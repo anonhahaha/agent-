@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>卷纲页 | AI Novel Pipeline</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./volumes.css" />
+  </head>
+  <body class="volume-studio-page">
+    <nav class="top-nav volume-top-nav">
+      <div class="nav-left">
+        <span class="logo">WF</span>
+        <div class="nav-title">
+          <h1>卷纲页</h1>
+          <span id="studioStatusPill" class="pill">读取中</span>
+        </div>
+      </div>
+      <div class="nav-right">
+        <a class="copy-btn sidebar-link-btn" href="./index.html">返回主工作台</a>
+      </div>
+    </nav>
+
+    <main class="volume-studio-shell">
+      <aside class="volume-studio-sidebar">
+        <section class="volume-sidebar-card">
+          <label class="volume-field-label" for="studioProjectPicker">当前书</label>
+          <select id="studioProjectPicker" class="volume-select"></select>
+        </section>
+
+        <section class="volume-sidebar-card">
+          <div class="volume-sidebar-header">
+            <div>
+              <h2>分卷库</h2>
+              <span id="volumeCountMeta">0 卷</span>
+            </div>
+            <button id="addVolumeBtn" class="icon-btn" type="button" title="新增一卷">+</button>
+          </div>
+          <div id="volumeList" class="volume-list"></div>
+        </section>
+      </aside>
+
+      <section class="volume-studio-main">
+        <section class="volume-panel volume-project-panel">
+          <div class="volume-panel-header">
+            <div>
+              <p class="volume-eyebrow">全书规划</p>
+              <h2>总纲与分卷沉淀</h2>
+              <span id="studioSaveMeta">自动保存到当前项目</span>
+            </div>
+            <button id="setCurrentVolumeBtn" class="action-btn" type="button">设为当前写作卷</button>
+          </div>
+          <div class="volume-project-grid">
+            <div class="volume-field full">
+              <label class="volume-field-label" for="studioBookTitleInput">书名</label>
+              <input id="studioBookTitleInput" class="volume-text-input" type="text" placeholder="当前项目书名" />
+            </div>
+            <div class="volume-field full">
+              <label class="volume-field-label" for="masterOutline">全书大纲</label>
+              <textarea id="masterOutline" class="volume-textarea volume-textarea-lg" placeholder="这里存全书主线、分卷结构、关键转折、秘密揭示节奏和结局方向。"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="volume-panel volume-detail-panel">
+          <div class="volume-panel-header">
+            <div>
+              <p class="volume-eyebrow">当前分卷</p>
+              <h2 id="volumeDetailHeading">未选择分卷</h2>
+              <span id="currentVolumeMeta">选中一卷后，在这里沉淀本卷的具体内容。</span>
+            </div>
+            <button id="deleteVolumeBtn" class="text-btn" type="button">删除本卷</button>
+          </div>
+
+          <div class="volume-form-grid">
+            <div class="volume-field">
+              <label class="volume-field-label" for="volumeTitleInput">卷名</label>
+              <input id="volumeTitleInput" class="volume-text-input" type="text" placeholder="例如：黑水城卷" />
+            </div>
+            <div class="volume-field">
+              <label class="volume-field-label" for="volumeStatusInput">状态</label>
+              <input id="volumeStatusInput" class="volume-text-input" type="text" placeholder="规划中 / 在写 / 完结" />
+            </div>
+            <div class="volume-field">
+              <label class="volume-field-label" for="volumeChapterRangeInput">章节范围</label>
+              <input id="volumeChapterRangeInput" class="volume-text-input" type="text" placeholder="第 1 章 - 第 48 章" />
+            </div>
+            <div class="volume-field">
+              <label class="volume-field-label" for="volumeSummaryInput">卷定位 / 卷目标</label>
+              <textarea id="volumeSummaryInput" class="volume-textarea" placeholder="这一卷到底要解决什么，主角会被推到什么位置，卷末转折是什么。"></textarea>
+            </div>
+            <div class="volume-field full">
+              <label class="volume-field-label" for="volumeOutlineInput">本卷大纲</label>
+              <textarea id="volumeOutlineInput" class="volume-textarea volume-textarea-lg" placeholder="按场景、阶段或章节层级写清这一卷的推进路线。"></textarea>
+            </div>
+            <div class="volume-field full">
+              <label class="volume-field-label" for="volumeContentInput">本卷内容沉淀</label>
+              <textarea id="volumeContentInput" class="volume-textarea volume-textarea-lg" placeholder="把这一卷已经写出的内容、关键事件、阶段成果、人物变化、已落地设定沉到这里。"></textarea>
+            </div>
+            <div class="volume-field">
+              <label class="volume-field-label" for="volumeKeyCharsInput">关键人物 / 势力</label>
+              <textarea id="volumeKeyCharsInput" class="volume-textarea" placeholder="列出本卷重点人物、势力、地点，以及他们在本卷中的定位。"></textarea>
+            </div>
+            <div class="volume-field">
+              <label class="volume-field-label" for="volumeKeyHooksInput">关键钩子 / 回收</label>
+              <textarea id="volumeKeyHooksInput" class="volume-textarea" placeholder="写本卷需要承接、延后、回收的伏笔和钩子。"></textarea>
+            </div>
+            <div class="volume-field full">
+              <label class="volume-field-label" for="volumeNotesInput">备注</label>
+              <textarea id="volumeNotesInput" class="volume-textarea" placeholder="这里写任何你不想丢的卷级备注，比如禁写项、风格提醒、章节分配。"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="volume-panel volume-preview-panel">
+          <div class="volume-panel-header">
+            <div>
+              <p class="volume-eyebrow">同步预览</p>
+              <h2>主界面当前卷大纲预览</h2>
+              <span>把某一卷设为当前写作卷后，主界面的“当前卷大纲”会同步成这份内容。</span>
+            </div>
+          </div>
+          <pre id="volumeOutlinePreview" class="volume-preview-block">暂无内容</pre>
+        </section>
+      </section>
+    </main>
+
+    <script src="./volumes.js"></script>
+  </body>
+</html>

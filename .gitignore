@@ -1,0 +1,30 @@
+node_modules/
+
+# Local runtime data
+.env
+.env.*
+!.env.example
+.workflow-data/
+exports/
+
+# Database dumps / local stores
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# Large local source materials and archives
+5618/
+5618.zip
+*.rar
+*.zip
+
+# Backups and logs
+*.bak
+*.log
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+dist/
+build/
