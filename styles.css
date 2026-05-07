@@ -2150,6 +2150,27 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.chapter-finalize-btn {
+  padding: 6px 14px;
+  border: 1px solid rgba(26, 94, 67, 0.18);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+}
+
+.chapter-finalize-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(26, 94, 67, 0.16);
+}
+
+.chapter-finalize-btn:disabled {
+  background: #f4f4ef;
+  color: var(--muted);
+  border-color: var(--border);
+  cursor: default;
+  box-shadow: none;
+}
+
 .chapter-meta-block {
   margin-bottom: 18px;
   padding: 14px 16px;

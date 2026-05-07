@@ -2213,6 +2213,120 @@ async function overwriteActiveChapter(content, summary = undefined) {
   persistConfig();
 }
 
+function buildManualChapterSummary(chapter) {
+  if (String(chapter?.summary || "").trim()) return String(chapter.summary).trim();
+  const plain = String(chapter?.content || "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/[#>*_`~\[\]()]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) return "";
+  return `作者确认定稿：${plain.slice(0, 260)}${plain.length > 260 ? "..." : ""}`;
+}
+
+function appendChapterSummaryLine(chapter, summary) {
+  const line = `${chapter.title}：${summary}`.trim();
+  if (!line || String($("chapterSummaries").value || "").includes(line)) return;
+  $("chapterSummaries").value = [$("chapterSummaries").value.trim(), line].filter(Boolean).join("\n");
+  const project = getActiveProject();
+  if (project) project.chapterSummaries = $("chapterSummaries").value.trim();
+}
+
+function markChapterTitleFinalized(chapter) {
+  const title = String(chapter?.title || "").trim();
+  if (!chapter || !title || /定稿/.test(title)) return;
+  if (/正文草稿/.test(title)) {
+    chapter.title = title.replace(/正文草稿/g, "正文定稿");
+  } else if (/草稿/.test(title)) {
+    chapter.title = title.replace(/草稿/g, "定稿");
+  } else {
+    chapter.title = `${title} 定稿`;
+  }
+}
+
+async function finalizeActiveChapterWriteback() {
+  const project = getActiveProject();
+  const chapter = project?.chapters?.find((item) => item.id === activeChapterId);
+  if (!project || !chapter) {
+    setStatus("没有可定稿章节", "");
+    return;
+  }
+  if (!String(chapter.content || "").trim()) {
+    setStatus("本章没有正文", "");
+    return;
+  }
+  if (getChapterStatusLabel(chapter.status) === CHAPTER_STATUS.WRITTEN_BACK) {
+    setStatus("本章已回写", "done");
+    return;
+  }
+  if (!confirm(`确认将《${chapter.title}》定稿并回写吗？\n\n确认后，本章会进入长期记忆和当前卷进度，可以继续生成下一章目标。`)) return;
+
+  setStatus("定稿回写中", "running");
+  try {
+    const summary = buildManualChapterSummary(chapter);
+    markChapterTitleFinalized(chapter);
+    if (summary) {
+      chapter.summary = summary;
+      appendChapterSummaryLine(chapter, summary);
+    }
+    recordChapterVersion(chapter, chapter.content, "作者确认定稿");
+    setChapterStatus(chapter, CHAPTER_STATUS.WRITTEN_BACK);
+    activeChapterId = chapter.id;
+    project.activeChapterId = chapter.id;
+
+    const volume = updateActiveVolumeFromWorkflow({
+      chapterSummary: summary,
+      activeVolume: {
+        status: getActiveVolume(project)?.status || "在写",
+      },
+    }, chapter);
+    const completionReview = getVolumeCompletionReview(project, null, chapter);
+    if (completionReview.completed && volume) {
+      volume.status = "完成";
+      syncActiveVolumeOutline(project);
+    }
+
+    await saveProjectChapterToServer(project.id, chapter, chapter.id);
+    await writebackProjectMemoryToServer(project.id, {
+      memory: {
+        codex: $("codex").value.trim(),
+        outline: $("outline").value.trim(),
+        hooks: $("hooks").value.trim(),
+        foreshadowLedger: $("foreshadowLedger").value.trim(),
+        volumeSummary: $("volumeSummary").value.trim(),
+        phaseSummary: $("phaseSummary").value.trim(),
+        characterStateTable: $("characterStateTable").value.trim(),
+        foreshadowTimeline: $("foreshadowTimeline").value.trim(),
+        chapterSummaries: $("chapterSummaries").value.trim(),
+        chapterGoal: $("chapterGoal").value.trim(),
+      },
+      activeVolume: buildActiveVolumeContext(),
+      activeVolumeId: project.activeVolumeId || volume?.id || "",
+      activeChapterId: chapter.id,
+      chapter,
+    });
+
+    appendOutput("本章定稿回写", [
+      `《${chapter.title}》已由作者确认定稿。`,
+      "",
+      summary ? `摘要：${summary}` : "摘要：本章已确认进入长期记忆。",
+      "",
+      ...formatVolumeCompletionReview(completionReview).split("\n"),
+    ].join("\n"));
+    appendControllerMessage("system", `《${chapter.title}》已确认定稿并回写。现在可以生成下一章目标。`);
+    setFlowState("extract", "done");
+    await syncProjectControllerStateFromServer(project.id, { render: true });
+    await syncProjectChaptersFromServer(project.id, { render: false });
+    renderChapterLibrary();
+    persistConfig();
+    setStatus("本章已定稿回写", "done");
+  } catch (error) {
+    console.error("Failed to finalize active chapter:", error);
+    setStatus("定稿失败", "");
+    appendOutput("定稿回写失败", `\`\`\`\n${error.message}\n\`\`\``, "error");
+  }
+}
+
 function renderChapterLibrary() {
   const project = getActiveProject();
   const chapters = Array.isArray(project.chapters) ? project.chapters.map((item, index) => normalizeChapterEntity(item, index)) : [];
@@ -2249,7 +2363,7 @@ function renderChapterLibrary() {
       <button class="chapter-select" type="button">
         <strong>${chapter.title}</strong>
         <span class="chapter-status-badge">${statusLabel}</span>
-        <span>${new Date(chapter.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })} · ${chapter.versions?.length || 1} 版/span>
+        <span>${new Date(chapter.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })} · ${chapter.versions?.length || 1} 版</span>
       </button>
       <button class="chapter-delete" type="button" title="删除本章">删除</button>
     `);
@@ -2268,6 +2382,7 @@ function renderChapterLibrary() {
 
   const active = chapters.find((chapter) => chapter.id === activeChapterId) || chapters[0];
   copyBtn.disabled = false;
+  const isWrittenBack = getChapterStatusLabel(active.status) === CHAPTER_STATUS.WRITTEN_BACK;
   const versionItems = (active.versions || []).slice(0, 8).map((version) => `
     <div class="chapter-version-item">
       <div class="chapter-version-copy">
@@ -2288,6 +2403,7 @@ function renderChapterLibrary() {
         <span>${new Date(active.createdAt).toLocaleString("zh-CN")} · 最近更新 ${new Date(active.updatedAt || active.createdAt).toLocaleString("zh-CN")}</span>
       </div>
       <div class="chapter-reader-actions">
+        <button id="finalizeChapter" class="chapter-finalize-btn" type="button" ${isWrittenBack ? "disabled" : ""}>${isWrittenBack ? "已定稿回写" : "确认定稿并回写"}</button>
         <button id="deleteChapter" class="copy-btn" type="button">删除本章</button>
       </div>
     </div>
@@ -2297,7 +2413,7 @@ function renderChapterLibrary() {
     <div class="chapter-version-panel">
       <div class="chapter-version-header">
         <strong>版本回滚</strong>
-        <span>保留最近 ${active.versions?.length || 1} 个版本/span>
+        <span>保留最近 ${active.versions?.length || 1} 个版本</span>
       </div>
       <div class="chapter-version-list">
         ${versionItems || `<div class="chapter-version-empty">暂无历史版本</div>`}
@@ -2307,6 +2423,12 @@ function renderChapterLibrary() {
       ${marked.parse(active.content)}
     </div>
   `);
+  $("finalizeChapter").addEventListener("click", () => {
+    finalizeActiveChapterWriteback().catch((error) => {
+      console.error("Failed to finalize active chapter:", error);
+      setStatus("定稿失败", "");
+    });
+  });
   $("deleteChapter").addEventListener("click", () => {
     deleteActiveChapter().catch((error) => {
       console.error("Failed to delete active chapter:", error);
@@ -2399,6 +2521,116 @@ async function copyHookItems() {
   const previous = btn.textContent;
   btn.textContent = "已复制";
   setTimeout(() => btn.textContent = previous, 1600);
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractFencedPayload(text) {
+  const value = String(text || "").trim();
+  const fenced = value.match(/```(?:yaml|yml|json)?\s*([\s\S]*?)```/i);
+  return (fenced ? fenced[1] : value).trim();
+}
+
+function dedentBlock(text) {
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const nonBlank = lines.filter((line) => line.trim());
+  if (!nonBlank.length) return "";
+  const minIndent = Math.min(...nonBlank.map((line) => (line.match(/^\s*/) || [""])[0].length));
+  return lines.map((line) => line.slice(Math.min(minIndent, line.length))).join("\n").trim();
+}
+
+function readStructuredSection(text, key) {
+  const lines = extractFencedPayload(text).replace(/\r\n?/g, "\n").split("\n");
+  const pattern = new RegExp(`^${escapeRegExp(key)}:\\s*(.*)$`);
+  let startIndex = -1;
+  let inline = "";
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = lines[i].match(pattern);
+    if (match) {
+      startIndex = i;
+      inline = String(match[1] || "").trim();
+      break;
+    }
+  }
+
+  if (startIndex === -1) return "";
+  if (inline && inline !== "|" && inline !== ">") return inline;
+
+  const sectionLines = [];
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*:\s*/.test(lines[i])) break;
+    sectionLines.push(lines[i]);
+  }
+  return dedentBlock(sectionLines.join("\n"));
+}
+
+function oneLineText(text, max = 700) {
+  const value = String(text || "")
+    .replace(/\s*\n+\s*/g, "；")
+    .replace(/\s+/g, " ")
+    .replace(/；{2,}/g, "；")
+    .trim();
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}...`;
+}
+
+function appendMemoryBlock(existing, title, body, max = 2200) {
+  const clean = limitTextWindow(String(body || "").trim(), max, 0.65);
+  if (!clean) return String(existing || "");
+  const current = String(existing || "").trim();
+  const marker = `【${title}】`;
+  if (current.includes(marker)) return current;
+  return [current, `${marker}\n${clean}`].filter(Boolean).join("\n\n");
+}
+
+function buildChapterSummaryFromWorkflowExtract({ chapter, draftResult, extractResult }) {
+  const fromExtract = readStructuredSection(extractResult, "chapter_summary");
+  if (fromExtract) return oneLineText(fromExtract, 900);
+  if (String(chapter?.summary || "").trim()) return oneLineText(chapter.summary, 900);
+  return oneLineText(String(draftResult || "").replace(/[#>*_`~\[\]()]/g, ""), 700);
+}
+
+function buildLocalMemoryUpdateFromExtract({ draftResult, auditResult, extractResult }) {
+  const project = getActiveProject();
+  const chapter = activeChapterId
+    ? project?.chapters?.find((item) => item.id === activeChapterId)
+    : null;
+  const chapterLabel = chapter?.title || buildChapterDraftLabel(project, $("chapterGoal").value.trim());
+  const chapterSummary = buildChapterSummaryFromWorkflowExtract({ chapter, draftResult, extractResult });
+  const facts = readStructuredSection(extractResult, "facts");
+  const codexUpdates = readStructuredSection(extractResult, "codex_updates");
+  const outlineUpdates = readStructuredSection(extractResult, "outline_updates");
+  const volumeUpdates = readStructuredSection(extractResult, "volume_updates");
+  const volumeProgress = readStructuredSection(extractResult, "volume_progress");
+  const foreshadowUpdates = readStructuredSection(extractResult, "foreshadow_updates");
+  const openHooks = readStructuredSection(extractResult, "open_hooks");
+  const resolvedHooks = readStructuredSection(extractResult, "resolved_hooks");
+  const characterState = readStructuredSection(extractResult, "character_state");
+  const continuityNotes = readStructuredSection(extractResult, "continuity_notes");
+  const auditNotes = limitTextWindow(auditResult, 900, 0.35);
+  const hookText = mergeUniqueLineBlocks(foreshadowUpdates, openHooks, resolvedHooks);
+  const summaryLine = chapterSummary ? `${chapterLabel}：${chapterSummary}` : "";
+
+  return {
+    codex: appendMemoryBlock($("codex").value, `${chapterLabel}设定更新`, mergeUniqueLineBlocks(codexUpdates, facts), 2400),
+    outline: appendMemoryBlock($("outline").value, `${chapterLabel}大纲进度`, outlineUpdates, 1400),
+    foreshadowLedger: appendMemoryBlock($("foreshadowLedger").value, `${chapterLabel}伏笔更新`, hookText, 2600),
+    volumeSummary: appendMemoryBlock($("volumeSummary").value, `${chapterLabel}卷进度`, mergeUniqueLineBlocks(volumeUpdates, volumeProgress), 1800),
+    phaseSummary: appendMemoryBlock($("phaseSummary").value, `${chapterLabel}阶段摘要`, mergeUniqueLineBlocks(volumeProgress, chapterSummary), 1400),
+    characterStateTable: appendMemoryBlock($("characterStateTable").value, `${chapterLabel}人物状态`, characterState, 2400),
+    foreshadowTimeline: appendMemoryBlock($("foreshadowTimeline").value, `${chapterLabel}伏笔生命周期`, hookText, 2600),
+    chapterSummaries: mergeUniqueLineBlocks($("chapterSummaries").value, summaryLine),
+    chapterSummary,
+    activeVolume: {
+      status: getActiveVolume(project)?.status || "在写",
+      keyChars: limitTextWindow(characterState, 1600, 0.65),
+      keyHooks: limitTextWindow(hookText, 2200, 0.65),
+      notes: limitTextWindow(mergeUniqueLineBlocks(continuityNotes, auditNotes), 1600, 0.65),
+    },
+  };
 }
 
 function parseChapterNumber(text) {
@@ -2917,6 +3149,8 @@ function revisionPrompt() {
     "必须保留原章节的主要事件、人物和结尾方向，只修正审稿指出的问题。",
     "必须遵守小说圣经、设定档案、全书大纲、当前卷大纲、章节摘要库、文风账本和本章目标。",
     "必须降低 AI 味：减少解释型旁白、抽象情绪词和模板句式，用动作、场景和台词承载修改。",
+    "重点删除空泛对照句和冷硬腔拆句，例如“东巷比方才更黑。不是没有火。是火都在远处烧。”这类句子看似有气氛，实际没有新增动作、信息或人物感受。",
+    "遇到这种写法，改成具体可见物、人物动作或空间变化，不要用“不是没有 X，是 Y”“不是 X，而是 Y”撑气氛。",
     "只输出修订后的完整正文，不要解释修改过程。",
   ].join("\n");
 }
@@ -2929,6 +3163,8 @@ function tunePrompt() {
     "不要重写成完全不同的一章，除非作者明确要求。",
     "必须遵守小说圣经、设定档案、全书大纲、当前卷大纲、章节摘要库、文风账本和本章目标。",
     "保持去 AI 味：减少解释型旁白和模板化句式，用动作、场景、台词承载变化。",
+    "重点处理空泛对照句和冷硬腔拆句，例如“东巷比方才更黑。不是没有火。是火都在远处烧。”不要用这种没有信息增量的句子撑气氛。",
+    "如果需要写黑、冷、静、压迫，就落到火光位置、影子遮挡、脚步迟疑、人物视线和器物反应上。",
     "只输出微调后的完整正文，不要解释修改过程。",
   ].join("\n");
 }
@@ -3538,7 +3774,8 @@ function qualityScorePrompt() {
   return [
     "你是长篇小说正文质量评估员。",
     "你只评估这一章正文是否可读、有人味、连续、能推进长篇，不负责改写。",
-    "重点压低以下问题的分数：提纲扩写感、解释腔、空泛比喻、生硬动词、对白不像人话、人物名或设定不稳、脱离当前卷目标、章末没有承接。",
+    "重点压低以下问题的分数：提纲扩写感、解释腔、空泛比喻、生硬动词、对白不像人话、空泛对照句、冷硬腔拆句、人物名或设定不稳、脱离当前卷目标、章末没有承接。",
+    "尤其要扣分：类似“东巷比方才更黑。不是没有火。是火都在远处烧。”这种“不是没有 X，是 Y”的气氛句。它没有带来新动作、新信息或人物视角，属于低效硬写。",
     "只返回 JSON，不要 Markdown。",
     "{",
     '  "humanTaste": 0-100,',
@@ -3576,10 +3813,12 @@ async function runDraftQualityScore({ mockMode, mode, sourceContext, memoryPack,
   if (mockMode) return buildMockQualityScore(mode);
 
   try {
-    const rawText = await callGemini({
+    const rawText = await callGeminiWithOpenAIFallback({
       model: $("geminiModel").value.trim(),
       signal: currentAbortController.signal,
       temperature: 0.2,
+      taskLabel: "正文质量评分",
+      annotate: false,
       messages: [
         { role: "system", content: qualityScorePrompt() },
         {
@@ -5578,6 +5817,7 @@ async function mergeCodexFromWorkflow({ draftResult, auditResult, extractResult 
       chapter.summary = `模拟摘要：${fallbackSummary}`;
     }
     if (chapter) {
+      markChapterTitleFinalized(chapter);
       setChapterStatus(chapter, CHAPTER_STATUS.WRITTEN_BACK);
     }
     const volume = updateActiveVolumeFromWorkflow({
@@ -5622,22 +5862,7 @@ async function mergeCodexFromWorkflow({ draftResult, auditResult, extractResult 
     return;
   }
 
-  const context = {
-    oldMemory: compactInputsForModel(),
-    activeVolume: buildActiveVolumeContext(),
-    draftResult: limitText(draftResult, 14000),
-    auditResult: limitText(auditResult, 8000),
-    extractResult: limitText(extractResult, 8000),
-  };
-
-  const updated = parseJsonObject(await callOpenAI({
-    model: $("controllerModel").value.trim(),
-    signal: currentAbortController?.signal,
-    messages: [
-      { role: "system", content: await withSkill("memory-maintainer", codexMergePrompt()) },
-      { role: "user", content: `请合并并输出新的长期记忆 JSON：\n${JSON.stringify(context, null, 2)}` },
-    ],
-  }));
+  const updated = buildLocalMemoryUpdateFromExtract({ draftResult, auditResult, extractResult });
 
   $("codex").value = updated.codex || $("codex").value;
   $("outline").value = updated.outline || $("outline").value;
@@ -5654,6 +5879,7 @@ async function mergeCodexFromWorkflow({ draftResult, auditResult, extractResult 
     const chapter = project.chapters?.find((item) => item.id === activeChapterId);
     if (chapter) {
       activeChapter = chapter;
+      markChapterTitleFinalized(chapter);
       setChapterStatus(chapter, CHAPTER_STATUS.WRITTEN_BACK);
       if (updated.chapterSummary) {
         chapter.summary = updated.chapterSummary;
@@ -6070,9 +6296,6 @@ function validateWorkflow(inputs, mockMode, mode = "standard") {
     ["deepseekApiKey", "DeepSeek Key"],
     ["deepseekModel", "DeepSeek 模型"],
   ];
-  if (normalizeWorkflowRunMode(mode) !== "fast") {
-    requiredConfig.push(["geminiApiKey", "Gemini Key"], ["geminiModel", "Gemini 模型"]);
-  }
   const missingConfig = requiredConfig.filter(([id]) => !$(id).value.trim());
 
   if (missingConfig.length) {
@@ -6132,9 +6355,14 @@ async function buildSteps(inputs, options = {}) {
     "危险、催促、护人、翻脸、试探这些高压场景，优先用短促、顺口、带情绪的现场说法，不要写成书面命令或解释句。",
     "例如该说“快走”时，不要写成“现在走”；该说“你们不走，我就得分心”时，不要写成“你们不动，我就得分心”。",
     "台词要符合人物关系、身份、当下压力和嘴上习惯，同一句意思也要选最有人味、最省力、最顺口的说法。",
+    "硬朗不等于句句发硬。写神态、动作和台词前，先判断人物此刻是受伤、失血、恐惧、急迫、遮掩、强撑还是翻脸；说法要贴这个状态。",
+    "避免“不是他不想快，是快不起来”“不是没有火，是火都在远处烧”这种语义正确但现场感很弱的转折句；改成身体受阻、神态变化、火光位置、脚步停顿或器物反应。",
     "不要为了显得有文采就临时硬造比喻，尤其避免“X 得像 Y”“像刀子”“像钉子”“像什么东西砸下来”这类低信息、生拼出来的比喻。",
     "如果一个比喻不能同时带来更准确的感官信息、人物视角和场景质感，就删掉，改回动作、音色、停顿、目光、呼吸或器物反应。",
     "例如“声音不高，硬得像钉子”不如“声音不高，字字发硬”或“声音压得不高，却没有半点转圜”。",
+    "不要用空泛对照句和冷硬腔拆句撑气氛，尤其避免“不是没有 X。是 Y。”“不是 X，而是 Y。”这类没有信息增量的句式。",
+    "例如“东巷比方才更黑。不是没有火。是火都在远处烧。”偏硬；如果要写黑，就写火光被墙角挡住、巷口只剩一截红光、人物踩进影子里看不清脚下水坑。",
+    "任何气氛句都必须承担至少一个功能：推进行动、暴露危险位置、改变人物判断、提供可感知细节；否则删掉。",
     "还要避免语义勉强说得通、但落字像术语没落地的生硬动词，尤其是把“催、牵、压、灌、震”之类玄幻常用动词单独丢进口语或近身体感里。",
     "如果动作对象不明确、施力关系不明确，读者会觉得句子在发硬。该补对象就补对象，该换成人话就换成人话。",
     "例如“再这么催，真想把自己玩死？”偏硬；可改成“再这么逼自己，真想把自己玩死？”“再这么硬顶，真不要命了？”或“再这么往死里撞，真想把自己玩死？”",
@@ -6149,7 +6377,10 @@ async function buildSteps(inputs, options = {}) {
     "额外检查文本是否僵硬、是否像提纲扩写、是否解释过多、是否缺少动作和场景承载、是否 AI 味过重。",
     "必须检查对白是否像人物在当下情境里真的会说的话，是否顺口，是否有人味，是否误用了书面命令、概念替换或不合场景的词。",
     "重点抓这种问题：危急催促场景把“快走”写成“现在走”，把“你们不走”写成“你们不动”，把人话写成解释味、转述味或错位表达。",
+    "还要检查神态、动作、台词是否贴合当前语境：人物若受伤、失血、恐惧、急迫、遮掩或强撑，句子不应像整理好的逻辑判断。",
+    "重点抓“不是他不想快，是快不起来”“不是没有火，是火都在远处烧”这类硬转折句；发现后要求改成身体反应、人物神态、空间细节或行动受阻。",
     "还要重点抓低信息硬比喻，例如“声音不高，硬得像钉子”这类为了显得有画面临时拼出的比喻；发现后要指出哪里硬、为什么不像人物视角、该改成什么类型的表达。",
+    "还要抓空泛对照句和冷硬腔拆句，例如“东巷比方才更黑。不是没有火。是火都在远处烧。”这类句子看似有气氛，但没有新动作、新信息或人物视角；发现后要求改成具体空间、火光位置、人物动作或危险线索。",
     "还要抓语义能懂但落字发硬的动词，尤其是“催、牵、压、灌、震”这类术语味动词在口语或近身感受里悬空使用。发现后要指出动词为什么悬、对象缺在哪里、换成什么人话更顺。",
     "输出格式：通过项、设定档案一致性、摘要连续性、文风账本检查、问题项、大纲偏离风险、可执行修改建议。问题要具体到文本表现。",
   ].join("\n"));
@@ -6183,7 +6414,7 @@ async function buildSteps(inputs, options = {}) {
     {
       id: "audit",
       title: "审稿意见",
-      call: callGemini,
+      call: callAuditModel,
       model: $("geminiModel").value.trim(),
       temperature: 0.35,
       prompt: auditorPrompt,
@@ -6362,7 +6593,13 @@ async function runWorkflow(options = {}) {
   setControllerBusy(true);
 
   try {
-    validateWorkflow(inputs, mockMode, mode);
+    const validationInputs = resume
+      ? {
+          ...inputs,
+          chapterGoal: inputs.chapterGoal || getReferenceChapter(project)?.goal || (previousState.sourceContext ? "续跑使用上次上下文" : ""),
+        }
+      : inputs;
+    validateWorkflow(validationInputs, mockMode, mode);
     project.workflowRunMode = mode;
     if ($("workflowRunMode")) $("workflowRunMode").value = mode;
     persistConfig();
